@@ -1,0 +1,172 @@
+/* WASIT X design system — import after `@import "tailwindcss";` in each app's globals.css. */
+
+@theme inline {
+  --color-bg: var(--wx-bg);
+  --color-surface: var(--wx-surface);
+  --color-surface-2: var(--wx-surface-2);
+  --color-surface-3: var(--wx-surface-3);
+  --color-border: var(--wx-border);
+  --color-border-strong: var(--wx-border-strong);
+  --color-fg: var(--wx-text);
+  --color-muted: var(--wx-muted);
+  --color-subtle: var(--wx-subtle);
+  --color-accent: var(--wx-accent);
+  --color-accent-strong: var(--wx-accent-strong);
+  --color-accent-2: var(--wx-accent-2);
+  --color-accent-fg: var(--wx-accent-fg);
+  --color-success: var(--wx-success);
+  --color-warning: var(--wx-warning);
+  --color-danger: var(--wx-danger);
+  --color-info: var(--wx-info);
+  --font-sans: var(--wx-font-sans);
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+  --shadow-card: 0 1px 0 0 rgb(255 255 255 / 0.03) inset, 0 8px 30px -12px rgb(0 0 0 / 0.45);
+  --shadow-glow: 0 0 0 1px rgb(16 185 129 / 0.35), 0 10px 40px -10px rgb(16 185 129 / 0.45);
+  --animate-fade-in: fade-in 220ms ease-out both;
+  --animate-rise: rise 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-shimmer: shimmer 1.4s linear infinite;
+  --animate-pulse-dot: pulse-dot 1.8s ease-in-out infinite;
+}
+
+/* Dark is the default brand look */
+:root {
+  color-scheme: dark;
+  --wx-bg: #060a13;
+  --wx-surface: #0b1220;
+  --wx-surface-2: #111a2e;
+  --wx-surface-3: #18233b;
+  --wx-border: #1f2b45;
+  --wx-border-strong: #2c3b5c;
+  --wx-text: #e8eef8;
+  --wx-muted: #93a3bf;
+  --wx-subtle: #64748f;
+  --wx-accent: #10b981;
+  --wx-accent-strong: #34d399;
+  --wx-accent-2: #2dd4bf;
+  --wx-accent-fg: #04130d;
+  --wx-success: #22c55e;
+  --wx-warning: #f59e0b;
+  --wx-danger: #f43f5e;
+  --wx-info: #38bdf8;
+  --wx-grid: rgb(255 255 255 / 0.035);
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --wx-bg: #f5f7fb;
+    --wx-surface: #ffffff;
+    --wx-surface-2: #f0f3f9;
+    --wx-surface-3: #e7ecf5;
+    --wx-border: #dce3ee;
+    --wx-border-strong: #c3cedf;
+    --wx-text: #0a1120;
+    --wx-muted: #4c5b75;
+    --wx-subtle: #6b7a93;
+    --wx-accent: #059669;
+    --wx-accent-strong: #047857;
+    --wx-accent-2: #0d9488;
+    --wx-accent-fg: #ffffff;
+    --wx-success: #15803d;
+    --wx-warning: #b45309;
+    --wx-danger: #be123c;
+    --wx-info: #0369a1;
+    --wx-grid: rgb(10 17 32 / 0.04);
+  }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --wx-bg: #f5f7fb;
+  --wx-surface: #ffffff;
+  --wx-surface-2: #f0f3f9;
+  --wx-surface-3: #e7ecf5;
+  --wx-border: #dce3ee;
+  --wx-border-strong: #c3cedf;
+  --wx-text: #0a1120;
+  --wx-muted: #4c5b75;
+  --wx-subtle: #6b7a93;
+  --wx-accent: #059669;
+  --wx-accent-strong: #047857;
+  --wx-accent-2: #0d9488;
+  --wx-accent-fg: #ffffff;
+  --wx-success: #15803d;
+  --wx-warning: #b45309;
+  --wx-danger: #be123c;
+  --wx-info: #0369a1;
+  --wx-grid: rgb(10 17 32 / 0.04);
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes shimmer {
+  from { background-position: -200% 0; }
+  to { background-position: 200% 0; }
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.85); }
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    background: var(--wx-bg);
+    color: var(--wx-text);
+    font-family: var(--wx-font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--wx-accent) 35%, transparent);
+  }
+  :focus-visible {
+    outline: 2px solid var(--wx-accent-2);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  /* numbers keep LTR digits & alignment inside RTL text */
+  .num {
+    font-variant-numeric: tabular-nums;
+    unicode-bidi: isolate;
+    direction: ltr;
+    display: inline-block;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  .wx-grid-bg {
+    background-image:
+      linear-gradient(var(--wx-grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--wx-grid) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+  .wx-glow {
+    background:
+      radial-gradient(60% 50% at 20% 0%, color-mix(in oklab, var(--wx-accent) 22%, transparent), transparent 70%),
+      radial-gradient(50% 40% at 90% 10%, color-mix(in oklab, var(--wx-accent-2) 16%, transparent), transparent 70%);
+  }
+  .wx-skeleton {
+    background: linear-gradient(90deg, var(--wx-surface-2) 25%, var(--wx-surface-3) 37%, var(--wx-surface-2) 63%);
+    background-size: 400% 100%;
+    animation: var(--animate-shimmer);
+  }
+}

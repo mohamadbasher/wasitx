@@ -13,3 +13,4 @@ allowBuilds:
   "@node-rs/argon2": true
   '@scarf/scarf': false
   workerd: false
+  '@parcel/watcher': true
