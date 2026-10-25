@@ -1,0 +1,8 @@
+@import "tailwindcss";
+@import "@wasitx/ui/styles.css";
+@source "../../../../packages/ui/src";
+:root { --wx-font-sans: var(--font-inter), system-ui, sans-serif; }
+/* Chart series token, validated with the dataviz validator against each surface */
+:root { --wx-chart-1: #0fa673; }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --wx-chart-1: #059669; } }
+:root[data-theme="light"] { --wx-chart-1: #059669; }
