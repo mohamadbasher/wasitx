@@ -1,0 +1,15 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+allowBuilds:
+  esbuild: true
+  "@prisma/engines": true
+  prisma: true
+  "@nestjs/core": true
+  "@swc/core": true
+  sharp: true
+  unrs-resolver: true
+  "@node-rs/argon2": true
+  '@scarf/scarf': false
+  workerd: false

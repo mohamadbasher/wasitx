@@ -1,0 +1,25 @@
+{
+  "name": "wasitx",
+  "private": true,
+  "version": "0.1.0",
+  "description": "WASIT X — Israel-only USDT/ILS peer-to-peer marketplace (sandbox until licensed)",
+  "packageManager": "pnpm@11.6.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "db:start": "node scripts/local-db.mjs start",
+    "db:stop": "node scripts/local-db.mjs stop",
+    "db:migrate": "pnpm --filter @wasitx/api prisma:migrate",
+    "db:seed": "pnpm --filter @wasitx/api seed"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.0",
+    "typescript": "^5.9.0"
+  }
+}

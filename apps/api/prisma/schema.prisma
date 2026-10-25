@@ -1,0 +1,1237 @@
+// WASIT X — PostgreSQL schema.
+// Conventions:
+//  * Money is BigInt minor units: *Usdt = micro-USDT (6dp), *Agorot = ILS agorot, priceE4 = ILS/USDT × 10^4.
+//  * Append-only tables (AuditEvent, TradeEvent, JournalEntry, LedgerLine, KycEvent) are protected by
+//    triggers in migration `0002_integrity` (no UPDATE/DELETE; ledger entries must balance).
+//  * PII that is not needed for search is encrypted at the application layer (AES-256-GCM, *Enc fields);
+//    *Hash fields are keyed HMACs used for uniqueness/lookup without storing plaintext.
+//  * "Order" in the brief = Trade here; BUY and SELL offers share the Offer table (side column).
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ── enums (mirrored in packages/shared/src/enums.ts) ─────────────────────────
+enum Locale {
+  ar
+  he
+  en
+}
+
+enum Role {
+  USER
+  SUPPORT_AGENT
+  COMPLIANCE_OFFICER
+  DISPUTE_MANAGER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum AccountStatus {
+  ACTIVE
+  RESTRICTED
+  SUSPENDED
+  CLOSED
+}
+
+enum KycStatus {
+  NOT_STARTED
+  PENDING
+  IN_REVIEW
+  APPROVED
+  REJECTED
+  RESUBMISSION_REQUIRED
+  EXPIRED
+  REVOKED
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum OfferSide {
+  BUY
+  SELL
+}
+
+enum OfferStatus {
+  ACTIVE
+  PAUSED
+  EXHAUSTED
+  CANCELLED
+  EXPIRED
+  SUSPENDED
+}
+
+enum TradeStatus {
+  OFFER_ACCEPTED
+  COMPLIANCE_REVIEW
+  ESCROW_PENDING
+  ESCROW_CONFIRMED
+  AWAITING_FIAT_PAYMENT
+  BUYER_MARKED_PAID
+  SELLER_CONFIRMED_RECEIPT
+  RELEASE_PENDING
+  COMPLETED
+  EXPIRED
+  CANCELLED
+  DISPUTED
+  FROZEN
+}
+
+enum PaymentMethodCode {
+  IL_BANK_TRANSFER
+  IL_INSTANT_TRANSFER
+  BIT
+  PAYBOX
+}
+
+enum NetworkCode {
+  TRON_TRC20
+  ETHEREUM_ERC20
+}
+
+enum FeePayer {
+  BUYER
+  SELLER
+  SPLIT
+}
+
+enum ActorType {
+  USER
+  STAFF
+  SYSTEM
+}
+
+enum TokenType {
+  EMAIL_VERIFY
+  PASSWORD_RESET
+  PHONE_OTP
+}
+
+enum BankAccountStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  DISABLED
+}
+
+enum LedgerAccountKind {
+  USER_AVAILABLE
+  USER_OFFER_RESERVED
+  USER_ESCROW
+  USER_WITHDRAWAL_PENDING
+  PLATFORM_FEE_REVENUE
+  PLATFORM_CUSTODY_OMNIBUS
+}
+
+enum JournalType {
+  DEPOSIT
+  OFFER_RESERVE
+  OFFER_UNRESERVE
+  ESCROW_LOCK
+  ESCROW_CANCEL
+  TRADE_SETTLE
+  WITHDRAWAL_REQUEST
+  WITHDRAWAL_COMPLETE
+  WITHDRAWAL_CANCEL
+  ADJUSTMENT
+}
+
+enum EscrowOpType {
+  HOLD
+  RELEASE
+  CANCEL_HOLD
+}
+
+enum EscrowOpStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+}
+
+enum PaymentStatus {
+  AWAITING
+  MARKED_SENT
+  CONFIRMED_BY_SELLER
+  RECONCILED
+  DISPUTED
+  REVERSED
+  VOID
+}
+
+enum SettlementBasis {
+  POLICY_AUTO
+  RECONCILIATION
+  COMPLIANCE
+  DISPUTE
+}
+
+enum MessageSenderRole {
+  BUYER
+  SELLER
+  STAFF
+  SYSTEM
+}
+
+enum FilePurpose {
+  CHAT_ATTACHMENT
+  PAYMENT_EVIDENCE
+  DISPUTE_EVIDENCE
+  KYC_DOCUMENT
+}
+
+enum ScanStatus {
+  PENDING
+  CLEAN
+  INFECTED
+  ERROR
+}
+
+enum DisputeStatus {
+  OPEN
+  AWAITING_INFO
+  UNDER_REVIEW
+  ESCALATED
+  RESOLVED
+}
+
+enum DisputeReason {
+  PAYMENT_NOT_RECEIVED
+  PAID_BUT_NOT_CONFIRMED
+  WRONG_AMOUNT
+  PAYMENT_FROM_THIRD_PARTY
+  SUSPECTED_FRAUD
+  OTHER
+}
+
+enum DisputeOutcome {
+  RELEASE_TO_BUYER
+  REFUND_TO_SELLER
+}
+
+enum ApprovalType {
+  DISPUTE_RESOLUTION
+  FROZEN_TRADE_CANCEL
+  WITHDRAWAL
+  ROLE_GRANT_PRIVILEGED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXECUTED
+  FAILED
+}
+
+enum CaseType {
+  KYC_REVIEW
+  SANCTIONS_MATCH
+  SUSPICIOUS_ACTIVITY
+  TRANSACTION_REVIEW
+  SOURCE_OF_FUNDS
+  CHAT_FLAG
+  WALLET_RISK
+}
+
+enum CaseStatus {
+  OPEN
+  IN_PROGRESS
+  ESCALATED
+  CLOSED_NO_ACTION
+  CLOSED_REPORTED
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ScreeningResult {
+  CLEAR
+  REVIEW
+  BLOCK
+}
+
+enum WithdrawalStatus {
+  PENDING_SCREENING
+  PENDING_APPROVAL
+  APPROVED
+  BROADCAST
+  CONFIRMED
+  REJECTED
+  FAILED
+}
+
+enum DepositStatus {
+  DETECTED
+  CONFIRMING
+  CREDITED
+  QUARANTINED
+  REJECTED
+}
+
+enum NotificationType {
+  KYC_APPROVED
+  KYC_REJECTED
+  KYC_RESUBMISSION
+  TRADE_STARTED
+  TRADE_ESCROW_LOCKED
+  TRADE_MARKED_PAID
+  TRADE_PAYMENT_DEADLINE
+  TRADE_RECEIPT_CONFIRMED
+  TRADE_COMPLETED
+  TRADE_CANCELLED
+  TRADE_EXPIRED
+  TRADE_DISPUTED
+  TRADE_FROZEN
+  DISPUTE_UPDATE
+  DISPUTE_RESOLVED
+  NEW_MESSAGE
+  SUPPORT_REPLY
+  SECURITY_NEW_LOGIN
+  SECURITY_PASSWORD_CHANGED
+  SECURITY_MFA_CHANGED
+  SECURITY_SESSION_REVOKED
+  WITHDRAWAL_UPDATE
+  ANNOUNCEMENT
+}
+
+enum DeliveryChannel {
+  EMAIL
+  SMS
+  PUSH
+}
+
+enum DeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum OutboxStatus {
+  PENDING
+  DONE
+  FAILED
+}
+
+enum TicketStatus {
+  OPEN
+  AWAITING_SUPPORT
+  AWAITING_USER
+  RESOLVED
+  CLOSED
+}
+
+enum TicketCategory {
+  ACCOUNT
+  KYC
+  TRADE
+  PAYMENT
+  SECURITY
+  OTHER
+}
+
+// ── identity ─────────────────────────────────────────────────────────────────
+model User {
+  id                  String        @id @default(cuid())
+  email               String        @unique
+  emailVerifiedAt     DateTime?
+  passwordHash        String
+  displayName         String
+  locale              Locale        @default(ar)
+  phoneE164           String?       @unique
+  phoneVerifiedAt     DateTime?
+  status              AccountStatus @default(ACTIVE)
+  statusReason        String?
+  mfaSecretEnc        String?
+  mfaEnabledAt        DateTime?
+  recoveryCodeHashes  String[]      @default([])
+  failedLoginCount    Int           @default(0)
+  lockedUntil         DateTime?
+  passwordChangedAt   DateTime?
+  notifyEmail         Boolean       @default(true)
+  notifyPush          Boolean       @default(true)
+  notifySms           Boolean       @default(true)
+  marketingOptIn      Boolean       @default(false)
+  deletionRequestedAt DateTime?
+  closedAt            DateTime?
+  lastSeenAt          DateTime?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  roles         UserRole[]           @relation("UserRoles")
+  sessions      Session[]
+  devices       Device[]
+  tokens        VerificationToken[]
+  kyc           KycProfile?
+  bankAccounts  BankAccount[]
+  offers        Offer[]
+  buyTrades     Trade[]              @relation("TradeBuyer")
+  sellTrades    Trade[]              @relation("TradeSeller")
+  stats         TraderStats?
+  notifications Notification[]
+  pushTokens    PushToken[]
+  tickets       SupportTicket[]
+  favorites     FavoriteTrader[]     @relation("FavOwner")
+  favoritedBy   FavoriteTrader[]     @relation("FavTarget")
+  depositAddrs  DepositAddress[]
+  withdrawals   Withdrawal[]
+  deposits      Deposit[]
+  files         FileObject[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model UserRole {
+  userId      String
+  role        Role
+  grantedById String?
+  createdAt   DateTime @default(now())
+  user        User     @relation("UserRoles", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, role])
+  @@index([role])
+}
+
+model Session {
+  id               String    @id @default(cuid())
+  userId           String
+  familyId         String
+  refreshTokenHash String    @unique
+  deviceId         String?
+  userAgent        String?
+  ip               String?
+  mfaVerified      Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+  lastUsedAt       DateTime  @default(now())
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  revokeReason     String?
+  rotatedAt        DateTime?
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device           Device?   @relation(fields: [deviceId], references: [id])
+
+  @@index([userId, revokedAt])
+  @@index([familyId])
+}
+
+model Device {
+  id          String    @id @default(cuid())
+  userId      String
+  fingerprint String
+  name        String?
+  platform    String?
+  firstSeenAt DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
+  lastIp      String?
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions    Session[]
+
+  @@unique([userId, fingerprint])
+}
+
+model LoginEvent {
+  id        String   @id @default(cuid())
+  userId    String?
+  email     String
+  success   Boolean
+  reason    String?
+  ip        String?
+  userAgent String?
+  newDevice Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([email, createdAt])
+  @@index([ip, createdAt])
+}
+
+model VerificationToken {
+  id         String    @id @default(cuid())
+  userId     String
+  type       TokenType
+  tokenHash  String    @unique
+  target     String?
+  attempts   Int       @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type, createdAt])
+}
+
+model PushToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  platform  String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ── compliance ───────────────────────────────────────────────────────────────
+model KycProfile {
+  id                  String     @id @default(cuid())
+  userId              String     @unique
+  status              KycStatus  @default(NOT_STARTED)
+  legalFirstName      String?
+  legalLastName       String?
+  nationalIdEnc       String?
+  nationalIdHash      String?    @unique
+  dateOfBirth         DateTime?  @db.Date
+  residencyCountry    String?
+  city                String?
+  street              String?
+  houseNumber         String?
+  postalCode          String?
+  occupation          String?
+  expectedVolume      String?
+  sourceOfFunds       String?
+  selfDeclaredPep     Boolean    @default(false)
+  provider            String?
+  providerApplicantId String?
+  documentVerified    Boolean    @default(false)
+  livenessVerified    Boolean    @default(false)
+  sanctionsHit        Boolean    @default(false)
+  pepHit              Boolean    @default(false)
+  riskLevel           RiskLevel  @default(LOW)
+  screenedAt          DateTime?
+  submittedAt         DateTime?
+  approvedAt          DateTime?
+  expiresAt           DateTime?
+  reviewNote          String?
+  reviewedById        String?
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+  user                User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events              KycEvent[]
+
+  @@index([status, submittedAt])
+}
+
+model KycEvent {
+  id         String     @id @default(cuid())
+  kycId      String
+  fromStatus KycStatus?
+  toStatus   KycStatus
+  actorType  ActorType
+  actorId    String?
+  note       String?
+  data       Json?
+  createdAt  DateTime   @default(now())
+  kyc        KycProfile @relation(fields: [kycId], references: [id], onDelete: Cascade)
+
+  @@index([kycId, createdAt])
+}
+
+model RiskFlag {
+  id           String    @id @default(cuid())
+  userId       String?
+  tradeId      String?
+  type         String
+  severity     Severity
+  details      Json?
+  resolvedAt   DateTime?
+  resolvedById String?
+  resolution   String?
+  createdAt    DateTime  @default(now())
+
+  @@index([userId, resolvedAt])
+  @@index([tradeId])
+  @@index([resolvedAt, severity])
+}
+
+model ComplianceCase {
+  id           String               @id @default(cuid())
+  type         CaseType
+  status       CaseStatus           @default(OPEN)
+  priority     Severity             @default(MEDIUM)
+  userId       String?
+  tradeId      String?
+  summary      String
+  assignedToId String?
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  closedAt     DateTime?
+  notes        ComplianceCaseNote[]
+
+  @@index([status, priority, createdAt])
+  @@index([userId])
+}
+
+model ComplianceCaseNote {
+  id        String         @id @default(cuid())
+  caseId    String
+  authorId  String
+  body      String
+  createdAt DateTime       @default(now())
+  case      ComplianceCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+}
+
+model WalletScreening {
+  id           String          @id @default(cuid())
+  network      NetworkCode
+  address      String
+  provider     String
+  result       ScreeningResult
+  riskScore    Int?
+  riskCategory String?
+  raw          Json?
+  createdAt    DateTime        @default(now())
+
+  @@index([network, address, createdAt])
+}
+
+// ── payments config & bank accounts ──────────────────────────────────────────
+model BankAccount {
+  id               String            @id @default(cuid())
+  userId           String
+  bankCode         String
+  branchNumber     String
+  accountNumberEnc String
+  accountLast4     String
+  accountHash      String
+  holderName       String
+  nameMatchesKyc   Boolean           @default(false)
+  status           BankAccountStatus @default(PENDING)
+  createdAt        DateTime          @default(now())
+  deletedAt        DateTime?
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, deletedAt])
+  @@index([accountHash])
+}
+
+model PaymentMethodConfig {
+  code         PaymentMethodCode @id
+  enabled      Boolean           @default(false)
+  displayOrder Int               @default(0)
+  note         String?
+  updatedById  String?
+  updatedAt    DateTime          @updatedAt
+}
+
+model NetworkConfig {
+  code               NetworkCode @id
+  enabled            Boolean     @default(false)
+  label              String
+  tokenContract      String?
+  minConfirmations   Int         @default(20)
+  withdrawalFeeUsdt  BigInt      @default(0)
+  minWithdrawalUsdt  BigInt      @default(10000000)
+  note               String?
+  updatedById        String?
+  updatedAt          DateTime    @updatedAt
+}
+
+// ── custody & ledger ─────────────────────────────────────────────────────────
+model DepositAddress {
+  id        String      @id @default(cuid())
+  userId    String
+  network   NetworkCode
+  address   String
+  provider  String
+  createdAt DateTime    @default(now())
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([network, address])
+  @@unique([userId, network])
+}
+
+model Deposit {
+  id            String        @id @default(cuid())
+  userId        String
+  network       NetworkCode
+  address       String
+  amountUsdt    BigInt
+  txHash        String
+  confirmations Int           @default(0)
+  status        DepositStatus @default(DETECTED)
+  simulated     Boolean       @default(true)
+  screeningId   String?
+  createdAt     DateTime      @default(now())
+  creditedAt    DateTime?
+  user          User          @relation(fields: [userId], references: [id])
+
+  @@unique([network, txHash])
+  @@index([userId, createdAt])
+}
+
+model Withdrawal {
+  id                String           @id @default(cuid())
+  userId            String
+  network           NetworkCode
+  address           String
+  amountUsdt        BigInt
+  networkFeeUsdt    BigInt
+  status            WithdrawalStatus @default(PENDING_SCREENING)
+  screeningId       String?
+  approvalRequestId String?
+  txHash            String?
+  simulated         Boolean          @default(true)
+  failureReason     String?
+  idempotencyKey    String           @unique
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  user              User             @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([status])
+}
+
+model LedgerAccount {
+  id            String            @id @default(cuid())
+  /// "user:<id>:<kind>:USDT" or "platform:<kind>:USDT"
+  key           String            @unique
+  kind          LedgerAccountKind
+  userId        String?
+  currency      String            @default("USDT")
+  balance       BigInt            @default(0)
+  allowNegative Boolean           @default(false)
+  createdAt     DateTime          @default(now())
+  lines         LedgerLine[]
+
+  @@index([userId])
+}
+
+model JournalEntry {
+  id             String       @id @default(cuid())
+  type           JournalType
+  referenceType  String
+  referenceId    String
+  idempotencyKey String       @unique
+  description    String
+  createdById    String?
+  createdAt      DateTime     @default(now())
+  lines          LedgerLine[]
+
+  @@index([referenceType, referenceId])
+  @@index([type, createdAt])
+}
+
+model LedgerLine {
+  id        String        @id @default(cuid())
+  entryId   String
+  accountId String
+  /// signed delta applied to the account balance; lines of an entry sum to zero per currency
+  amount    BigInt
+  currency  String        @default("USDT")
+  createdAt DateTime      @default(now())
+  entry     JournalEntry  @relation(fields: [entryId], references: [id])
+  account   LedgerAccount @relation(fields: [accountId], references: [id])
+
+  @@index([accountId, createdAt])
+  @@index([entryId])
+}
+
+model EscrowOperation {
+  id             String         @id @default(cuid())
+  tradeId        String
+  type           EscrowOpType
+  status         EscrowOpStatus @default(PENDING)
+  idempotencyKey String         @unique
+  provider       String
+  providerRef    String?
+  amountUsdt     BigInt
+  attempts       Int            @default(0)
+  /// lease / backoff: workers claim an op by moving this forward (safe across API instances)
+  nextAttemptAt  DateTime       @default(now())
+  error          String?
+  createdAt      DateTime       @default(now())
+  confirmedAt    DateTime?
+  trade          Trade          @relation(fields: [tradeId], references: [id])
+
+  @@index([tradeId])
+  @@index([status, nextAttemptAt])
+}
+
+/// ⚠ SANDBOX ONLY — simulates the books of an external licensed custodian so that the platform ledger
+/// can be reconciled against an independent source. Replaced by the real custodian's API in production.
+model SandboxCustodyAccount {
+  id          String              @id @default(cuid())
+  externalRef String              @unique
+  totalUsdt   BigInt              @default(0)
+  heldUsdt    BigInt              @default(0)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  holds       SandboxCustodyHold[]
+}
+
+model SandboxCustodyHold {
+  id             String                @id @default(cuid())
+  accountId      String
+  amountUsdt     BigInt
+  status         String                @default("HELD")
+  idempotencyKey String                @unique
+  releasedTo     String?
+  feeAccountRef  String?
+  createdAt      DateTime              @default(now())
+  closedAt       DateTime?
+  account        SandboxCustodyAccount @relation(fields: [accountId], references: [id])
+}
+
+model SandboxCustodyOperation {
+  idempotencyKey String   @id
+  type           String
+  request        Json
+  response       Json
+  createdAt      DateTime @default(now())
+}
+
+// ── marketplace ──────────────────────────────────────────────────────────────
+model Offer {
+  id             String            @id @default(cuid())
+  ownerId        String
+  side           OfferSide
+  status         OfferStatus       @default(ACTIVE)
+  amountUsdt     BigInt
+  remainingUsdt  BigInt
+  priceE4        BigInt
+  minOrderAgorot BigInt
+  maxOrderAgorot BigInt
+  /// min(maxOrderAgorot, fiat value of remainingUsdt) — maintained on every write; used for amount filtering
+  effectiveMaxAgorot BigInt
+  paymentMethod  PaymentMethodCode
+  bankAccountId  String?
+  terms          String?
+  expiresAt      DateTime
+  version        Int               @default(0)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  cancelledAt    DateTime?
+  owner          User              @relation(fields: [ownerId], references: [id])
+  trades         Trade[]
+
+  @@index([side, status, paymentMethod, priceE4])
+  @@index([side, status, effectiveMaxAgorot])
+  @@index([side, status, createdAt])
+  @@index([ownerId, status])
+  @@index([status, expiresAt])
+}
+
+model Trade {
+  id                       String            @id @default(cuid())
+  reference                String            @unique
+  offerId                  String
+  offerSide                OfferSide
+  makerId                  String
+  takerId                  String
+  buyerId                  String
+  sellerId                 String
+  status                   TradeStatus       @default(OFFER_ACCEPTED)
+  frozenFrom               TradeStatus?
+  amountUsdt               BigInt
+  priceE4                  BigInt
+  fiatAgorot               BigInt
+  feeUsdt                  BigInt
+  buyerFeeUsdt             BigInt
+  sellerFeeUsdt            BigInt
+  feeRateBps               Int
+  feePayer                 FeePayer
+  commissionConfigId       String?
+  sellerLocksUsdt          BigInt
+  buyerReceivesUsdt        BigInt
+  paymentMethod            PaymentMethodCode
+  sellerBankAccountId      String
+  paymentReference         String            @unique
+  paymentDeadline          DateTime?
+  requiresReleaseReview    Boolean           @default(false)
+  settlementBasis          SettlementBasis?
+  markedPaidAt             DateTime?
+  confirmedAt              DateTime?
+  releasedAt               DateTime?
+  completedAt              DateTime?
+  cancelledAt              DateTime?
+  cancelReason             String?
+  takeIdempotencyKey       String            @unique
+  version                  Int               @default(0)
+  sandbox                  Boolean           @default(true)
+  createdAt                DateTime          @default(now())
+  updatedAt                DateTime          @updatedAt
+  offer                    Offer             @relation(fields: [offerId], references: [id])
+  buyer                    User              @relation("TradeBuyer", fields: [buyerId], references: [id])
+  seller                   User              @relation("TradeSeller", fields: [sellerId], references: [id])
+  events                   TradeEvent[]
+  escrowOps                EscrowOperation[]
+  payment                  Payment?
+  messages                 Message[]
+  dispute                  Dispute?
+  ratings                  Rating[]
+
+  @@index([buyerId, status, createdAt])
+  @@index([sellerId, status, createdAt])
+  @@index([status, paymentDeadline])
+  @@index([offerId])
+  @@index([createdAt])
+}
+
+model TradeEvent {
+  id         String       @id @default(cuid())
+  tradeId    String
+  fromStatus TradeStatus?
+  toStatus   TradeStatus
+  action     String
+  actorType  ActorType
+  actorId    String?
+  actorRole  String
+  note       String?
+  metadata   Json?
+  createdAt  DateTime     @default(now())
+  trade      Trade        @relation(fields: [tradeId], references: [id])
+
+  @@index([tradeId, createdAt])
+}
+
+model Payment {
+  id                   String        @id @default(cuid())
+  tradeId              String        @unique
+  method               PaymentMethodCode
+  amountAgorot         BigInt
+  reference            String
+  status               PaymentStatus @default(AWAITING)
+  buyerNote            String?
+  markedSentAt         DateTime?
+  confirmedAt          DateTime?
+  reconciledAt         DateTime?
+  reconciliationSource String?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  trade                Trade         @relation(fields: [tradeId], references: [id])
+}
+
+/// Imported bank statement lines used for settlement reconciliation (CSV import in sandbox;
+/// licensed open-banking feed in production — see docs/INTEGRATIONS.md).
+model BankStatementLine {
+  id               String   @id @default(cuid())
+  source           String
+  amountAgorot     BigInt
+  reference        String
+  payerName        String?
+  valueDate        DateTime
+  matchedPaymentId String?  @unique
+  importedById     String?
+  createdAt        DateTime @default(now())
+
+  @@index([reference])
+}
+
+model Rating {
+  id        String   @id @default(cuid())
+  tradeId   String
+  raterId   String
+  rateeId   String
+  positive  Boolean
+  comment   String?
+  createdAt DateTime @default(now())
+  trade     Trade    @relation(fields: [tradeId], references: [id])
+
+  @@unique([tradeId, raterId])
+  @@index([rateeId])
+}
+
+model TraderStats {
+  userId              String   @id
+  completedTrades     Int      @default(0)
+  finishedTrades      Int      @default(0)
+  positiveRatings     Int      @default(0)
+  totalRatings        Int      @default(0)
+  releaseSecondsTotal BigInt   @default(0)
+  releaseCount        Int      @default(0)
+  boughtUsdt          BigInt   @default(0)
+  soldUsdt            BigInt   @default(0)
+  feesPaidUsdt        BigInt   @default(0)
+  updatedAt           DateTime @updatedAt
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model FavoriteTrader {
+  userId    String
+  traderId  String
+  createdAt DateTime @default(now())
+  user      User     @relation("FavOwner", fields: [userId], references: [id], onDelete: Cascade)
+  trader    User     @relation("FavTarget", fields: [traderId], references: [id], onDelete: Cascade)
+
+  @@id([userId, traderId])
+}
+
+// ── messaging & files ────────────────────────────────────────────────────────
+model Message {
+  id          String            @id @default(cuid())
+  tradeId     String
+  senderId    String?
+  senderRole  MessageSenderRole
+  body        String
+  riskSignals String[]          @default([])
+  flagged     Boolean           @default(false)
+  createdAt   DateTime          @default(now())
+  trade       Trade             @relation(fields: [tradeId], references: [id])
+  files       FileObject[]
+  reports     MessageReport[]
+
+  @@index([tradeId, createdAt])
+  @@index([flagged, createdAt])
+}
+
+model MessageRead {
+  tradeId    String
+  userId     String
+  lastReadAt DateTime
+
+  @@id([tradeId, userId])
+}
+
+model MessageReport {
+  id         String    @id @default(cuid())
+  messageId  String
+  reporterId String
+  reason     String
+  resolvedAt DateTime?
+  createdAt  DateTime  @default(now())
+  message    Message   @relation(fields: [messageId], references: [id])
+
+  @@unique([messageId, reporterId])
+}
+
+model FileObject {
+  id               String          @id @default(cuid())
+  ownerId          String
+  purpose          FilePurpose
+  tradeId          String?
+  messageId        String?
+  disputeMessageId String?
+  fileName         String
+  mimeType         String
+  size             Int
+  sha256           String
+  storageKey       String          @unique
+  scanStatus       ScanStatus      @default(PENDING)
+  createdAt        DateTime        @default(now())
+  owner            User            @relation(fields: [ownerId], references: [id])
+  message          Message?        @relation(fields: [messageId], references: [id])
+  disputeMessage   DisputeMessage? @relation(fields: [disputeMessageId], references: [id])
+
+  @@index([tradeId])
+  @@index([ownerId, createdAt])
+}
+
+// ── disputes & approvals ─────────────────────────────────────────────────────
+model Dispute {
+  id           String           @id @default(cuid())
+  tradeId      String           @unique
+  openedById   String
+  openedByRole String
+  reason       DisputeReason
+  description  String
+  status       DisputeStatus    @default(OPEN)
+  assignedToId String?
+  outcome      DisputeOutcome?
+  findings     String?
+  resolvedById String?
+  resolvedAt   DateTime?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  trade        Trade            @relation(fields: [tradeId], references: [id])
+  messages     DisputeMessage[]
+
+  @@index([status, createdAt])
+  @@index([assignedToId, status])
+}
+
+model DisputeMessage {
+  id         String       @id @default(cuid())
+  disputeId  String
+  authorId   String?
+  authorRole String
+  body       String
+  staffOnly  Boolean      @default(false)
+  createdAt  DateTime     @default(now())
+  dispute    Dispute      @relation(fields: [disputeId], references: [id])
+  files      FileObject[]
+
+  @@index([disputeId, createdAt])
+}
+
+model ApprovalRequest {
+  id            String         @id @default(cuid())
+  type          ApprovalType
+  referenceId   String
+  payload       Json
+  status        ApprovalStatus @default(PENDING)
+  requestedById String
+  requestNote   String?
+  decidedById   String?
+  decisionNote  String?
+  error         String?
+  createdAt     DateTime       @default(now())
+  decidedAt     DateTime?
+  executedAt    DateTime?
+
+  @@index([status, createdAt])
+  @@index([referenceId])
+}
+
+// ── commissions & configuration ──────────────────────────────────────────────
+model CommissionConfig {
+  id            String   @id @default(cuid())
+  rateBps       Int
+  minUsdt       BigInt
+  maxUsdt       BigInt
+  payer         FeePayer
+  effectiveFrom DateTime @default(now())
+  note          String
+  createdById   String?
+  createdAt     DateTime @default(now())
+
+  @@index([effectiveFrom])
+}
+
+model SystemConfig {
+  key         String   @id
+  value       Json
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+}
+
+model Announcement {
+  id          String    @id @default(cuid())
+  title       Json
+  body        Json
+  severity    String
+  publishedAt DateTime?
+  archivedAt  DateTime?
+  createdById String
+  createdAt   DateTime  @default(now())
+}
+
+// ── notifications & outbox ───────────────────────────────────────────────────
+model Notification {
+  id         String                 @id @default(cuid())
+  userId     String
+  type       NotificationType
+  params     Json
+  link       String?
+  readAt     DateTime?
+  createdAt  DateTime               @default(now())
+  user       User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries NotificationDelivery[]
+
+  @@index([userId, readAt, createdAt])
+}
+
+model NotificationDelivery {
+  id             String          @id @default(cuid())
+  notificationId String
+  channel        DeliveryChannel
+  status         DeliveryStatus  @default(PENDING)
+  attempts       Int             @default(0)
+  lastError      String?
+  sentAt         DateTime?
+  createdAt      DateTime        @default(now())
+  notification   Notification    @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+}
+
+model OutboxEvent {
+  id          String       @id @default(cuid())
+  topic       String
+  payload     Json
+  status      OutboxStatus @default(PENDING)
+  attempts    Int          @default(0)
+  availableAt DateTime     @default(now())
+  processedAt DateTime?
+  error       String?
+  createdAt   DateTime     @default(now())
+
+  @@index([status, availableAt])
+}
+
+// ── support ──────────────────────────────────────────────────────────────────
+model SupportTicket {
+  id           String          @id @default(cuid())
+  userId       String
+  subject      String
+  category     TicketCategory
+  tradeId      String?
+  status       TicketStatus    @default(OPEN)
+  assignedToId String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  user         User            @relation(fields: [userId], references: [id])
+  messages     TicketMessage[]
+
+  @@index([status, updatedAt])
+  @@index([userId, updatedAt])
+}
+
+model TicketMessage {
+  id        String        @id @default(cuid())
+  ticketId  String
+  authorId  String
+  isStaff   Boolean
+  internal  Boolean       @default(false)
+  body      String
+  createdAt DateTime      @default(now())
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, createdAt])
+}
+
+// ── audit & idempotency ──────────────────────────────────────────────────────
+model AuditEvent {
+  id         BigInt    @id @default(autoincrement())
+  actorType  ActorType
+  actorId    String?
+  action     String
+  entityType String
+  entityId   String?
+  ip         String?
+  userAgent  String?
+  data       Json?
+  /// SHA-256 digest of this row's canonical content (detects edits); chaining is done by AuditSeal
+  hash       String
+  createdAt  DateTime  @default(now())
+
+  @@index([entityType, entityId])
+  @@index([actorId, createdAt])
+  @@index([action, createdAt])
+}
+
+/// Tamper-evidence checkpoints: each seal chains the digests of a contiguous id range of AuditEvent rows
+/// onto the previous seal, so deleting, inserting or editing any sealed row breaks verification.
+model AuditSeal {
+  id           Int      @id @default(autoincrement())
+  fromId       BigInt
+  toId         BigInt   @unique
+  count        Int
+  prevSealHash String
+  hash         String
+  createdAt    DateTime @default(now())
+}
+
+model IdempotencyRecord {
+  key            String   @id
+  requestHash    String
+  responseStatus Int
+  responseBody   Json
+  createdAt      DateTime @default(now())
+  expiresAt      DateTime
+
+  @@index([expiresAt])
+}

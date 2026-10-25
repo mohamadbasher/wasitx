@@ -1,0 +1,21 @@
+node_modules/
+dist/
+.next/
+.turbo/
+.expo/
+coverage/
+*.log
+.env
+.env.local
+.env.*.local
+!.env.example
+# Local Postgres cluster created by scripts/local-db.mjs
+.pgdata/
+# Sandbox private object storage (encrypted blobs)
+.storage/
+.storage-test/
+apps/api/src/generated/
+playwright-report/
+test-results/
+ios/
+android/
