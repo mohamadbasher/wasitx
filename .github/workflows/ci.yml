@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: wasitx
+          POSTGRES_PASSWORD: wasitx_ci
+          POSTGRES_DB: wasitx_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U wasitx" --health-interval 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://wasitx:wasitx_ci@localhost:5432/wasitx_test
+      TEST_DATABASE_URL: postgresql://wasitx:wasitx_ci@localhost:5432/wasitx_test
+      TOKEN_SIGNING_KEY: ci-only-token-signing-key-0000000000000000000
+      DATA_ENCRYPTION_KEY: Y2ktb25seS1kYXRhLWVuY3J5cHRpb24ta2V5LTMyYnk=
+      LOOKUP_HMAC_KEY: ci-only-lookup-hmac-key-00000000000000000000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: Build shared package
+        run: pnpm --filter @wasitx/shared build
+      - name: Generate Prisma client
+        run: pnpm --filter @wasitx/api prisma:generate
+      - name: Typecheck all workspaces
+        run: |
+          pnpm --filter @wasitx/shared typecheck
+          pnpm --filter @wasitx/api typecheck
+          pnpm --filter @wasitx/web typecheck
+          pnpm --filter @wasitx/admin typecheck
+          pnpm --filter @wasitx/mobile typecheck
+      - name: Unit tests (shared core)
+        run: pnpm --filter @wasitx/shared test
+      - name: API integration tests (real Postgres, migrations + triggers)
+        run: pnpm --filter @wasitx/api test
+      - name: Build web & admin
+        run: |
+          pnpm --filter @wasitx/web build
+          pnpm --filter @wasitx/admin build
+      - name: Mobile bundle (Android + iOS)
+        working-directory: apps/mobile
+        run: npx expo export --platform android --platform ios --output-dir /tmp/mobile-export
+
+  security:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: Dependency audit (fail on high/critical in production deps)
+        run: pnpm audit --prod --audit-level high
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+      - name: CodeQL init
+        uses: github/codeql-action/init@v3
+        with: { languages: javascript-typescript }
+      - name: CodeQL analyze
+        uses: github/codeql-action/analyze@v3

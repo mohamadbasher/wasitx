@@ -1,0 +1,66 @@
+# Full local stack in containers (alternative to `pnpm db:start` + `pnpm dev`).
+#   docker compose -f infra/docker-compose.yml up --build
+# Development secrets only. Production runs on managed services (docs/DEPLOYMENT.md).
+name: wasitx
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: wasitx
+      POSTGRES_PASSWORD: wasitx_dev_only
+      POSTGRES_DB: wasitx
+    ports: ["127.0.0.1:5544:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wasitx"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["127.0.0.1:6379:6379"]
+
+  migrate:
+    build: { context: .., dockerfile: infra/docker/api.Dockerfile }
+    command: ["npx", "prisma", "migrate", "deploy"]
+    environment: &api-env
+      NODE_ENV: production
+      TRADING_MODE: SANDBOX
+      DATABASE_URL: postgresql://wasitx:wasitx_dev_only@postgres:5432/wasitx
+      REDIS_URL: redis://redis:6379
+      CORS_ORIGINS: http://localhost:3000,http://localhost:3001
+      WEB_URL: http://localhost:3000
+      ADMIN_URL: http://localhost:3001
+      TOKEN_SIGNING_KEY: compose-dev-only-token-signing-key-0000000000
+      DATA_ENCRYPTION_KEY: ZGV2LW9ubHktZGF0YS1lbmNyeXB0aW9uLWtleS0zMmI=
+      LOOKUP_HMAC_KEY: compose-dev-only-lookup-hmac-key-000000000000
+    depends_on: { postgres: { condition: service_healthy } }
+
+  api:
+    build: { context: .., dockerfile: infra/docker/api.Dockerfile }
+    environment: *api-env
+    ports: ["127.0.0.1:4000:4000"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_started }
+
+  web:
+    build:
+      context: ..
+      dockerfile: infra/docker/next.Dockerfile
+      args: { APP: web, NEXT_PUBLIC_API_URL: "http://localhost:4000/api/v1", NEXT_PUBLIC_WS_URL: "http://localhost:4000/ws" }
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on: [api]
+
+  admin:
+    build:
+      context: ..
+      dockerfile: infra/docker/next.Dockerfile
+      args: { APP: admin, NEXT_PUBLIC_API_URL: "http://localhost:4000/api/v1" }
+    ports: ["127.0.0.1:3001:3000"]
+    depends_on: [api]
+
+volumes:
+  pgdata:

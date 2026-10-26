@@ -71,7 +71,8 @@ describe("expiry & cancellation", () => {
     const offer = await sellOffer(seller, { amount: "400" });
     const t = await take(buyer, offer, "100").expect(201);
     await prisma.trade.update({ where: { id: t.body.id }, data: { paymentDeadline: new Date(Date.now() - 60_000) } });
-    expect(await app.get(TradesService).expireOverdue()).toBe(1);
+    // the shared test DB may hold other overdue trades from earlier runs — assert on this trade only
+    expect(await app.get(TradesService).expireOverdue()).toBeGreaterThanOrEqual(1);
     await settle(jobs);
     const after = await buyer.call("get", `/trades/${t.body.id}`).expect(200);
     expect(after.body.status).toBe("EXPIRED");
@@ -89,7 +90,9 @@ describe("expiry & cancellation", () => {
     const t = await take(buyer, offer, "100").expect(201);
     await buyer.call("post", `/trades/${t.body.id}/mark-paid`, { paidFromOwnAccount: true }, { "Idempotency-Key": idem() }).expect(200);
     await prisma.trade.update({ where: { id: t.body.id }, data: { paymentDeadline: new Date(Date.now() - 3600_000) } });
-    expect(await app.get(TradesService).expireOverdue()).toBe(0);
+    await app.get(TradesService).expireOverdue();
+    const still = await buyer.call("get", `/trades/${t.body.id}`).expect(200);
+    expect(still.body.status).toBe("BUYER_MARKED_PAID");
   });
 
   it("lets the buyer cancel before paying but never the seller after escrow", async () => {
